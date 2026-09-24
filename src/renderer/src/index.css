@@ -1,1 +1,3 @@
+/* LATRO Base renderer global styles */
 body { margin: 0; }
+button:disabled { cursor: not-allowed; }

@@ -1,2 +1,16 @@
-/* EDA-specific layout */
+* { box-sizing: border-box; }
 .eda-card { min-width: 0; }
+.credentials-section, .properties-editor { padding: 22px 24px; border-bottom: 1px solid #23484a; }
+.credentials-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.credential-card { padding: 16px; border: 1px solid #23484a; border-radius: 8px; background: rgba(255,255,255,.02); }
+.credential-card h3 { margin: 0 0 14px; color: #c6ddda; font-size: 13px; }
+input, textarea { width: 100%; border: 1px solid #356263; border-radius: 6px; outline: none; color: #e2eeee; background: #102b2e; }
+input { padding: 10px 12px; margin-bottom: 9px; }
+input:focus, textarea:focus, select:focus { border-color: #79c9c2; box-shadow: 0 0 0 2px rgba(121,201,194,.15); }
+.message { min-height: 20px; margin-top: 12px; color: #8fb5b1; font-size: 12px; }
+.connection-badge.connected { color: #83d3a3; border-color: #397d5a; }.connection-badge.error { color: #ff8c91; border-color: #8c4349; }.connection-badge.working { color: #e1c16d; border-color: #806b37; }
+.online-dot.connected, .status-dot.connected { background: #53c982; }.online-dot.error, .status-dot.error { background: #e35b61; }.online-dot.working, .status-dot.working { background: #e1a94d; }
+.properties-editor { border-bottom: 1px solid #23484a; }.editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }.editor-heading h2 { margin: 0 0 6px; font-size: 16px; }.editor-heading p { margin: 0; color: #89a6a4; font-size: 12px; }.editor-heading button { margin-left: 8px; }
+textarea { min-height: 430px; resize: vertical; padding: 14px; font: 12px/1.55 Consolas, 'Courier New', monospace; }
+.empty-state { min-height: 290px; display: grid; place-content: center; justify-items: center; color: #6d9996; }.empty-icon { width: 46px; height: 46px; display: grid; place-items: center; margin-bottom: 12px; border: 1px solid #315354; border-radius: 50%; color: #8ec8c3; font-size: 24px; }.empty-state h3 { margin: 0 0 7px; color: #b8cecc; font-size: 14px; }.empty-state p { margin: 0; font-size: 12px; }
+@media (max-width: 900px) { .credentials-grid { grid-template-columns: 1fr; } .card-toolbar, .resource-grid, .editor-heading { align-items: stretch; flex-direction: column; } }
