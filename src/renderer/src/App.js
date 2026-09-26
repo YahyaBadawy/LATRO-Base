@@ -2,12 +2,22 @@ import React from 'react';
 import './App.css';
 import EdaTab from './components/EdaTab';
 
+function LatroMark() {
+  return (
+    <svg className="brand-logo" viewBox="0 0 360 90" role="img" aria-label="LATRO">
+      <circle cx="43" cy="45" r="31" fill="none" stroke="#dc5960" strokeWidth="4" />
+      <path d="M43 17a29 29 0 1 0 0 56" fill="none" stroke="#b9c5c5" strokeWidth="8" />
+      <text x="91" y="59" fontFamily="Arial, sans-serif" fontSize="42" letterSpacing="1" fill="#e7eeee">LATRO</text>
+    </svg>
+  );
+}
+
 export default function App() {
   return (
     <div className="app-shell">
       <header className="titlebar">
         <div className="brand">
-          <img src="/latro-logo.svg" alt="LATRO" className="brand-logo" />
+          <LatroMark />
           <span className="brand-divider" />
           <span className="brand-name">LATRO Base</span>
         </div>
