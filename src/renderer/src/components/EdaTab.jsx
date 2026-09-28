@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import './EdaTab.css';
 
 const SITES = { HO: '10.77.85.74', DC: '10.77.85.72' };
@@ -7,6 +7,7 @@ const SCOPE = 'scopes.ericsson.com/activation/activation_logic_properties.read s
 
 function shellQuote(value) { return `'${String(value ?? '').replace(/'/g, "'\\''")}'`; }
 function parseJson(stdout) { return JSON.parse(String(stdout || '').replace(/^\*.*$/gm, '').trim()); }
+function safeName(value) { return String(value).replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 120); }
 
 export default function EdaTab() {
   const [site, setSite] = useState('HO');
@@ -27,20 +28,17 @@ export default function EdaTab() {
   const credentials = useMemo(() => ({ username: ssh.username, password: ssh.password }), [ssh]);
 
   useEffect(() => {
-    // try to load stored creds
     (async () => {
       try {
-        if (!window.latroApi?.getCredentials) return;
-        const res = await window.latroApi.getCredentials({ service: 'latro-base', account: 'default' });
-        if (res && res.success && res.payload) {
-          const p = res.payload;
-          if (p.ssh) setSsh(p.ssh);
-          if (p.eda) setEda(p.eda);
-          if (p.site) setSite(p.site);
+        const result = await window.latroApi?.getCredentials?.({ service: 'latro-base', account: 'default' });
+        if (result?.success && result.payload) {
+          if (result.payload.ssh) setSsh(result.payload.ssh);
+          if (result.payload.eda) setEda(result.payload.eda);
+          if (result.payload.site) setSite(result.payload.site);
           setRemember(true);
           setMessage('Loaded saved credentials from OS keychain.');
         }
-      } catch (e) { /* ignore */ }
+      } catch (_) { /* optional keychain */ }
     })();
   }, []);
 
@@ -51,6 +49,8 @@ export default function EdaTab() {
     return result.stdout;
   }
 
+  function update(setter, key, value) { setter((current) => ({ ...current, [key]: value })); }
+
   async function connect() {
     if (!ssh.username || !ssh.password || !eda.username || !eda.password || !eda.clientId || !eda.clientSecret) {
       setMessage('Complete all SSH and EDA credential fields before connecting.');
@@ -59,71 +59,82 @@ export default function EdaTab() {
     }
     setBusy(true); setStatus({ kind: 'working', text: 'Connecting…' });
     try {
-      const form = [['client_id', eda.clientId], ['client_secret', eda.clientSecret], ['grant_type', 'password'], ['username', eda.username], ['password', eda.password], ['scope', SCOPE]].map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&');
+      const form = [['client_id', eda.clientId], ['client_secret', eda.clientSecret], ['grant_type', 'password'], ['username', eda.username], ['password', eda.password], ['scope', SCOPE]]
+        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&');
       const tokenJson = parseJson(await remoteCurl(`curl -ksS --fail-with-body -X POST -H ${shellQuote('Content-Type: application/x-www-form-urlencoded')} --data ${shellQuote(form)} ${shellQuote('https://127.0.0.1:8383/oauth/v1/token')}`));
       if (!tokenJson.access_token) throw new Error('Token response did not contain access_token');
-      setToken(tokenJson.access_token);
-      const list = parseJson(await remoteCurl(`curl -ksS --fail-with-body -H ${shellQuote(`Authorization: Bearer ${tokenJson.access_token}`)} ${shellQuote('https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/')}`));
+      const nextToken = tokenJson.access_token;
+      const list = parseJson(await remoteCurl(`curl -ksS --fail-with-body -H ${shellQuote(`Authorization: Bearer ${nextToken}`)} ${shellQuote('https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/')}`));
       if (!Array.isArray(list)) throw new Error('Resource response was not a JSON array');
-      setResources(list); setSelectedResource(''); setPropertiesText(''); setStatus({ kind: 'connected', text: 'Connected' }); setMessage(`Connected. Loaded ${list.length} resources.`);
-
-      if (remember && window.latroApi?.storeCredentials) {
-        try { await window.latroApi.storeCredentials({ service: 'latro-base', account: 'default', payload: { ssh, eda, site } }); setMessage((m) => m + ' Credentials saved.'); } catch (e) { /* ignore */ }
-      }
-    } catch (error) { setToken(''); setResources([]); setStatus({ kind: 'error', text: 'Connection failed' }); setMessage(error.message); }
-    finally { setBusy(false); }
+      setToken(nextToken); setResources(list); setSelectedResource(''); setPropertiesText('');
+      setStatus({ kind: 'connected', text: 'Connected' }); setMessage(`Connected. Loaded ${list.length} resources.`);
+      if (remember && window.latroApi?.storeCredentials) await window.latroApi.storeCredentials({ service: 'latro-base', account: 'default', payload: { ssh, eda, site } });
+    } catch (error) {
+      setToken(''); setResources([]); setStatus({ kind: 'error', text: 'Connection failed' }); setMessage(error.message);
+    } finally { setBusy(false); }
   }
 
   async function loadProperties() {
-    if (!token || !selectedResource) return; setBusy(true); setEditable(false);
-    try { const url = `https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`; setPropertiesText(JSON.stringify(parseJson(await remoteCurl(`curl -ksS --fail-with-body -H ${shellQuote(`Authorization: Bearer ${token}`)} ${shellQuote(url)}`)), null, 2)); setMessage('Properties loaded. Click Edit properties to modify the JSON.'); }
-    catch (error) { setMessage(`Properties failed: ${error.message}`); } finally { setBusy(false); }
+    if (!token || !selectedResource) return;
+    setBusy(true); setEditable(false);
+    try {
+      const url = `https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
+      const data = parseJson(await remoteCurl(`curl -ksS --fail-with-body -H ${shellQuote(`Authorization: Bearer ${token}`)} ${shellQuote(url)}`));
+      setPropertiesText(JSON.stringify(data, null, 2));
+      setMessage('Properties loaded. Click Edit properties to modify the JSON.');
+    } catch (error) { setMessage(`Properties failed: ${error.message}`); }
+    finally { setBusy(false); }
   }
 
-  async function backupProperties() {
-    if (!propertiesText || !selectedResource) return; setBusy(true);
-    try { JSON.parse(propertiesText); const safe = selectedResource.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 120); const stamp = new Date().toISOString().replace(/[:.]/g, ''); const remotePath = `/tmp/latro_${site}_${safe}_${stamp}.json`; const result = await window.latroApi.writeRemoteBackup({ bastion, credentials, remotePath, content: propertiesText, mode: 0o600 }); if (!result.success) throw new Error(result.error || 'Remote backup failed'); setMessage(`Backup written on ${host}: ${remotePath}`); }
-    catch (error) { setMessage(`Backup failed: ${error.message}`); } finally { setBusy(false); }
+  // Always fetch the current remote state and back it up immediately before PATCH.
+  async function backupCurrentRemoteProperties() {
+    const url = `https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
+    const current = parseJson(await remoteCurl(`curl -ksS --fail-with-body -H ${shellQuote(`Authorization: Bearer ${token}`)} ${shellQuote(url)}`));
+    const stamp = new Date().toISOString().replace(/[:.]/g, '');
+    const remotePath = `/tmp/latro_${site}_${safeName(selectedResource)}_${stamp}_before-patch.json`;
+    const result = await window.latroApi.writeRemoteBackup({
+      bastion, credentials, remotePath,
+      content: JSON.stringify(current, null, 2), mode: 0o600
+    });
+    if (!result?.success) throw new Error(result?.error || 'Automatic pre-PATCH backup failed');
+    return remotePath;
   }
 
   async function saveProperties() {
-    if (!token || !selectedResource || !propertiesText) return; setBusy(true);
+    if (!token || !selectedResource || !propertiesText) return;
+    if (!window.confirm('LATRO Base will first back up the current remote properties, then PATCH your changes. Continue?')) return;
+    setBusy(true);
     try {
       const parsed = JSON.parse(propertiesText);
-      if (!confirm('Are you sure you want to PATCH these properties to the remote EDA resource? This action is irreversible.')) { setBusy(false); return; }
-      const payload = Buffer.from(JSON.stringify(parsed), 'utf8').toString('base64');
+      const backupPath = await backupCurrentRemoteProperties();
+      const payload = btoa(unescape(encodeURIComponent(JSON.stringify(parsed))));
       const url = `https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
       const command = `printf %s ${shellQuote(payload)} | base64 -d | curl -ksS --fail-with-body -X PATCH ${shellQuote(url)} -H ${shellQuote(`Authorization: Bearer ${token}`)} -H ${shellQuote('Accept: application/json')} -H ${shellQuote('Content-Type: application/json')} --data-binary @-`;
       await remoteCurl(command);
-      setMessage('Properties updated successfully.');
-    } catch (error) { setMessage(`Update failed: ${error.message}`); } finally { setBusy(false); }
+      setMessage(`Properties updated successfully. Pre-PATCH backup: ${backupPath}`);
+    } catch (error) {
+      setMessage(`Update cancelled: ${error.message}`);
+    } finally { setBusy(false); }
   }
-
-  function update(setter, key, value) { setter((current) => ({ ...current, [key]: value })); }
 
   return (
     <section className="eda-card">
       <div className="card-toolbar">
-        <div className="field-group"><label>EDA SITE</label><select value={site} onChange={(e) => { setSite(e.target.value); setStatus({ kind: 'disconnected', text: 'Disconnected' }); setToken(''); setResources([]); }}><option value="HO">HO</option><option value="DC">DC</option></select></div>
+        <div className="field-group"><label>EDA SITE</label><select value={site} onChange={(e) => { setSite(e.target.value); setToken(''); setResources([]); setStatus({ kind: 'disconnected', text: 'Disconnected' }); }}><option value="HO">HO</option><option value="DC">DC</option></select></div>
         <div className="endpoint"><span className={`online-dot ${status.kind}`} /> {site}-EDA <span className="muted">{host}:8383</span></div>
         <button className="primary-button" onClick={connect} disabled={busy}>{busy ? 'Working…' : 'Connect & load resources'}</button>
       </div>
-
       <div className="credentials-section">
         <div className="section-title"><div><h2>Secure connection</h2><p>Credentials stay in memory and are sent only over the SSH bastion session.</p></div><span className={`connection-badge ${status.kind}`}><span className="status-dot" />{status.text}</span></div>
         <div className="credentials-grid">
-          <div className="credential-card"><h3>SSH bastion credentials</h3><input aria-label="SSH username" placeholder="SSH username" value={ssh.username} onChange={(e) => update(setSsh, 'username', e.target.value)} autoComplete="username" /><input aria-label="SSH password" placeholder="SSH password" type="password" value={ssh.password} onChange={(e) => update(setSsh, 'password', e.target.value)} autoComplete="current-password" /></div>
-          <div className="credential-card"><h3>EDA API credentials</h3><input aria-label="EDA username" placeholder="EDA username" value={eda.username} onChange={(e) => update(setEda, 'username', e.target.value)} autoComplete="username" /><input aria-label="EDA password" placeholder="EDA password" type="password" value={eda.password} onChange={(e) => update(setEda, 'password', e.target.value)} autoComplete="current-password" /><input aria-label="OAuth client ID" placeholder="OAuth client ID" value={eda.clientId} onChange={(e) => update(setEda, 'clientId', e.target.value)} /><input aria-label="OAuth client secret" placeholder="OAuth client secret" type="password" value={eda.clientSecret} onChange={(e) => update(setEda, 'clientSecret', e.target.value)} /></div>
+          <div className="credential-card"><h3>SSH bastion credentials</h3><input placeholder="SSH username" value={ssh.username} onChange={(e) => update(setSsh, 'username', e.target.value)} /><input placeholder="SSH password" type="password" value={ssh.password} onChange={(e) => update(setSsh, 'password', e.target.value)} /></div>
+          <div className="credential-card"><h3>EDA API credentials</h3><input placeholder="EDA username" value={eda.username} onChange={(e) => update(setEda, 'username', e.target.value)} /><input placeholder="EDA password" type="password" value={eda.password} onChange={(e) => update(setEda, 'password', e.target.value)} /><input placeholder="OAuth client ID" value={eda.clientId} onChange={(e) => update(setEda, 'clientId', e.target.value)} /><input placeholder="OAuth client secret" type="password" value={eda.clientSecret} onChange={(e) => update(setEda, 'clientSecret', e.target.value)} /></div>
         </div>
-        <div style={{display:'flex',gap:12,alignItems:'center',marginTop:12}}><label style={{fontSize:12,color:'#9db6b4'}}><input type="checkbox" checked={remember} onChange={(e)=>setRemember(e.target.checked)} /> Remember credentials in OS keychain</label><div className="message" role="status">{message}</div></div>
+        <label className="remember-option"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Remember credentials in OS keychain</label>
+        <div className="message" role="status">{message}</div>
       </div>
-
-      <div className="resource-section">
-        <div className="section-title"><div><h2>Resource backup & update</h2><p>Select a resource, retrieve its properties, edit the JSON, and PATCH it back.</p></div></div>
-        <div className="resource-grid"><div className="field-group"><label>RESOURCE</label><select value={selectedResource} onChange={(e) => setSelectedResource(e.target.value)} disabled={!resources.length}><option value="">{resources.length ? 'Select an EDA resource' : 'Connect to load resources'}</option>{resources.map((item) => <option key={item} value={item}>{item}</option>)}</select></div><button className="primary-button" onClick={loadProperties} disabled={!token || !selectedResource || busy}>View properties</button><button className="secondary-button" onClick={backupProperties} disabled={!propertiesText || busy}>Backup to remote /tmp</button></div>
-      </div>
-
-      {propertiesText ? <div className="properties-editor"><div className="editor-heading"><div><h2>Properties editor</h2><p>Validate JSON before saving. A backup is recommended before PATCH.</p></div><div><button className="secondary-button" onClick={backupProperties} disabled={busy}>Backup first</button><button className="secondary-button" onClick={()=>setEditable((s)=>!s)} disabled={busy}>{editable? 'Lock' : 'Edit properties'}</button><button className="primary-button" onClick={saveProperties} disabled={busy}>Save changes (PATCH)</button></div></div><textarea aria-label="Resource properties JSON" value={propertiesText} onChange={(e) => setPropertiesText(e.target.value)} spellCheck="false" readOnly={!editable} /></div> : <div className="empty-state"><div className="empty-icon">⌁</div><h3>No properties loaded</h3><p>Connect, select a resource, then click View properties.</p></div>}
+      <div className="resource-section"><div className="section-title"><div><h2>Resource backup & update</h2><p>Select a resource, retrieve its properties, edit the JSON, and PATCH it back.</p></div></div><div className="resource-grid"><div className="field-group"><label>RESOURCE</label><select value={selectedResource} onChange={(e) => setSelectedResource(e.target.value)} disabled={!resources.length}><option value="">{resources.length ? 'Select an EDA resource' : 'Connect to load resources'}</option>{resources.map((item) => <option key={item} value={item}>{item}</option>)}</select></div><button className="primary-button" onClick={loadProperties} disabled={!token || !selectedResource || busy}>View properties</button></div></div>
+      {propertiesText ? <div className="properties-editor"><div className="editor-heading"><div><h2>Properties editor</h2><p>A remote backup is created automatically immediately before every PATCH.</p></div><div><button className="secondary-button" onClick={() => setEditable((value) => !value)} disabled={busy}>{editable ? 'Lock' : 'Edit properties'}</button><button className="primary-button" onClick={saveProperties} disabled={busy || !editable}>Save changes (PATCH)</button></div></div><textarea aria-label="Resource properties JSON" value={propertiesText} onChange={(e) => setPropertiesText(e.target.value)} spellCheck="false" readOnly={!editable} /></div> : <div className="empty-state"><div className="empty-icon">⌁</div><h3>No properties loaded</h3><p>Connect, select a resource, then click View properties.</p></div>}
     </section>
   );
 }
