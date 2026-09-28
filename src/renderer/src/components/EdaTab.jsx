@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './EdaTab.css';
 
 const SITES = { HO: '10.77.85.74', DC: '10.77.85.72' };
@@ -23,6 +23,10 @@ export default function EdaTab() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('Enter credentials to connect to the selected EDA.');
 
+  // toast state
+  const [toast, setToast] = useState({ visible: false, type: 'info', text: '' });
+  const toastTimer = useRef(null);
+
   const host = useMemo(() => SITES[site], [site]);
   const bastion = useMemo(() => ({ host, port: 22 }), [host]);
   const credentials = useMemo(() => ({ username: ssh.username, password: ssh.password }), [ssh]);
@@ -40,6 +44,7 @@ export default function EdaTab() {
         }
       } catch (_) { /* optional keychain */ }
     })();
+    return () => { if (toastTimer.current) clearTimeout(toastTimer.current); };
   }, []);
 
   async function remoteCurl(command) {
@@ -50,6 +55,12 @@ export default function EdaTab() {
   }
 
   function update(setter, key, value) { setter((current) => ({ ...current, [key]: value })); }
+
+  function showToast(type, text, timeout = 6000) {
+    setToast({ visible: true, type, text });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast((t) => ({ ...t, visible: false })), timeout);
+  }
 
   async function connect() {
     if (!ssh.username || !ssh.password || !eda.username || !eda.password || !eda.clientId || !eda.clientSecret) {
@@ -68,9 +79,11 @@ export default function EdaTab() {
       if (!Array.isArray(list)) throw new Error('Resource response was not a JSON array');
       setToken(nextToken); setResources(list); setSelectedResource(''); setPropertiesText('');
       setStatus({ kind: 'connected', text: 'Connected' }); setMessage(`Connected. Loaded ${list.length} resources.`);
+      showToast('success', `Connected — loaded ${list.length} resources`);
       if (remember && window.latroApi?.storeCredentials) await window.latroApi.storeCredentials({ service: 'latro-base', account: 'default', payload: { ssh, eda, site } });
     } catch (error) {
       setToken(''); setResources([]); setStatus({ kind: 'error', text: 'Connection failed' }); setMessage(error.message);
+      showToast('error', `Connection failed: ${error.message}`);
     } finally { setBusy(false); }
   }
 
@@ -82,7 +95,8 @@ export default function EdaTab() {
       const data = parseJson(await remoteCurl(`curl -ksS --fail-with-body -H ${shellQuote(`Authorization: Bearer ${token}`)} ${shellQuote(url)}`));
       setPropertiesText(JSON.stringify(data, null, 2));
       setMessage('Properties loaded. Click Edit properties to modify the JSON.');
-    } catch (error) { setMessage(`Properties failed: ${error.message}`); }
+      showToast('info', `Loaded properties for ${selectedResource}`);
+    } catch (error) { setMessage(`Properties failed: ${error.message}`); showToast('error', `Properties failed: ${error.message}`); }
     finally { setBusy(false); }
   }
 
@@ -111,14 +125,25 @@ export default function EdaTab() {
       const url = `https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
       const command = `printf %s ${shellQuote(payload)} | base64 -d | curl -ksS --fail-with-body -X PATCH ${shellQuote(url)} -H ${shellQuote(`Authorization: Bearer ${token}`)} -H ${shellQuote('Accept: application/json')} -H ${shellQuote('Content-Type: application/json')} --data-binary @-`;
       await remoteCurl(command);
-      setMessage(`Properties updated successfully. Pre-PATCH backup: ${backupPath}`);
+      const successMessage = `Properties updated successfully. Pre-PATCH backup: ${backupPath}`;
+      setMessage(successMessage);
+      showToast('success', successMessage);
     } catch (error) {
-      setMessage(`Update cancelled: ${error.message}`);
+      const err = `Update cancelled: ${error.message}`;
+      setMessage(err);
+      showToast('error', err);
     } finally { setBusy(false); }
   }
 
   return (
     <section className="eda-card">
+      {/* Toast */}
+      {toast.visible && (
+        <div className={`latro-toast ${toast.type}`} role="status" aria-live="polite">
+          <div className="latro-toast-text">{toast.text}</div>
+        </div>
+      )}
+
       <div className="card-toolbar">
         <div className="field-group"><label>EDA SITE</label><select value={site} onChange={(e) => { setSite(e.target.value); setToken(''); setResources([]); setStatus({ kind: 'disconnected', text: 'Disconnected' }); }}><option value="HO">HO</option><option value="DC">DC</option></select></div>
         <div className="endpoint"><span className={`online-dot ${status.kind}`} /> {site}-EDA <span className="muted">{host}:8383</span></div>
