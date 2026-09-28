@@ -1,0 +1,38 @@
+{
+  "name": "latro-base",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "concurrently \"npm:react-start\" \"npm:electron-start\"",
+    "react-start": "cd src/renderer && npm start",
+    "electron-start": "wait-on tcp:3000 && electron .",
+    "build": "cd src/renderer && npm run build && electron-builder",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "concurrently": "^7.0.0",
+    "electron": "^25.0.0",
+    "wait-on": "^6.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "dependencies": {
+    "ssh2": "^1.11.0",
+    "axios": "^1.4.0",
+    "keytar": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.latro.base",
+    "files": ["**/*"],
+    "win": {
+      "icon": "src/main/assets/latro-icon.ico"
+    },
+    "mac": {
+      "icon": "src/main/assets/latro-icon.icns"
+    },
+    "linux": {
+      "icon": "src/main/assets/latro-256.png"
+    }
+  }
+}

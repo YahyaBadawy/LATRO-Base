@@ -2,6 +2,19 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { sshExecOnBastion, sftpWriteFileOnBastion } = require('./sshHelper');
 
+// Set AppUserModelId for Windows so taskbar icon groups correctly
+if (process.platform === 'win32') {
+  try { app.setAppUserModelId('com.latro.base'); } catch (e) {}
+}
+
+let keytar;
+try {
+  keytar = require('keytar');
+} catch (e) {
+  // keytar might not be available in some environments; we'll handle absence gracefully
+  keytar = null;
+}
+
 function createWindow() {
   const iconPath = path.join(__dirname, 'assets', 'latro-icon.svg');
   const win = new BrowserWindow({
@@ -41,4 +54,24 @@ ipcMain.handle('eda:writeRemoteBackup', async (_event, args) => {
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+// Keychain storage handlers (optional, requires keytar)
+ipcMain.handle('eda:storeCredentials', async (_event, { service = 'latro-base', account = 'default', payload }) => {
+  if (!keytar) throw new Error('Keytar unavailable');
+  await keytar.setPassword(service, account, JSON.stringify(payload));
+  return { success: true };
+});
+
+ipcMain.handle('eda:getCredentials', async (_event, { service = 'latro-base', account = 'default' }) => {
+  if (!keytar) return { success: false, error: 'Keytar unavailable' };
+  const raw = await keytar.getPassword(service, account);
+  if (!raw) return { success: false, error: 'not found' };
+  try { return { success: true, payload: JSON.parse(raw) }; } catch (e) { return { success: false, error: 'parse error' }; }
+});
+
+ipcMain.handle('eda:deleteCredentials', async (_event, { service = 'latro-base', account = 'default' }) => {
+  if (!keytar) throw new Error('Keytar unavailable');
+  const ok = await keytar.deletePassword(service, account);
+  return { success: ok };
 });
