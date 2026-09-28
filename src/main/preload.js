@@ -5,5 +5,10 @@ contextBridge.exposeInMainWorld('latroApi', {
   writeRemoteBackup: (args) => ipcRenderer.invoke('eda:writeRemoteBackup', args),
   storeCredentials: (args) => ipcRenderer.invoke('eda:storeCredentials', args),
   getCredentials: (args) => ipcRenderer.invoke('eda:getCredentials', args),
-  deleteCredentials: (args) => ipcRenderer.invoke('eda:deleteCredentials', args)
+  deleteCredentials: (args) => ipcRenderer.invoke('eda:deleteCredentials', args),
+  windowControl: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    maximize: () => ipcRenderer.invoke('window:maximize'),
+    close: () => ipcRenderer.invoke('window:close')
+  }
 });

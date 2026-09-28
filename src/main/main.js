@@ -75,3 +75,25 @@ ipcMain.handle('eda:deleteCredentials', async (_event, { service = 'latro-base',
   const ok = await keytar.deletePassword(service, account);
   return { success: ok };
 });
+
+// Window control handlers
+ipcMain.handle('window:minimize', async () => {
+  const w = BrowserWindow.getFocusedWindow();
+  if (w) w.minimize();
+  return { success: true };
+});
+
+ipcMain.handle('window:maximize', async () => {
+  const w = BrowserWindow.getFocusedWindow();
+  if (w) {
+    if (w.isMaximized()) w.unmaximize();
+    else w.maximize();
+  }
+  return { success: true };
+});
+
+ipcMain.handle('window:close', async () => {
+  const w = BrowserWindow.getFocusedWindow();
+  if (w) w.close();
+  return { success: true };
+});

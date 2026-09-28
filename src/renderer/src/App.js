@@ -10,6 +10,8 @@ function LatroMark() {
 }
 
 export default function App() {
+  const win = (typeof window !== 'undefined' && window.latroApi && window.latroApi.windowControl) ? window.latroApi.windowControl : null;
+
   return (
     <div className="app-shell">
       <header className="titlebar">
@@ -19,9 +21,9 @@ export default function App() {
           <span className="brand-name">LATRO Base</span>
         </div>
         <div className="window-controls" aria-label="Window controls">
-          <span className="window-button minimize">−</span>
-          <span className="window-button maximize">□</span>
-          <span className="window-button close">×</span>
+          <span className="window-button minimize" onClick={() => win?.minimize()}>−</span>
+          <span className="window-button maximize" onClick={() => win?.maximize()}>□</span>
+          <span className="window-button close" onClick={() => win?.close()}>×</span>
         </div>
       </header>
       <div className="app-layout">
