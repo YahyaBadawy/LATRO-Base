@@ -7,24 +7,26 @@
     "start": "concurrently \"npm:react-start\" \"npm:electron-start\"",
     "react-start": "cd src/renderer && npm start",
     "electron-start": "wait-on tcp:3000 && electron .",
-    "build": "cd src/renderer && npm run build && electron-builder",
+    "build": "npm run build --prefix src/renderer && electron-builder --win portable",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
   "devDependencies": {
     "concurrently": "^7.0.0",
     "electron": "^25.0.0",
-    "wait-on": "^6.0.0",
-    "electron-builder": "^24.0.0"
+    "electron-builder": "^26.15.3",
+    "wait-on": "^6.0.0"
   },
   "dependencies": {
-    "ssh2": "^1.11.0",
     "axios": "^1.4.0",
-    "keytar": "^8.0.0"
+    "keytar": "^7.9.0",
+    "ssh2": "^1.11.0"
   },
   "build": {
     "appId": "com.latro.base",
-    "files": ["**/*"],
+    "files": [
+      "**/*"
+    ],
     "win": {
       "icon": "src/main/assets/latro-icon.ico"
     },

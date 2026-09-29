@@ -36,12 +36,16 @@ function sshExecOnBastion(bastion, credentials, command, timeoutMs = 30000) {
           stderr += data.toString();
         });
       });
+    }).on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
+      // Respond to keyboard-interactive prompts with the password
+      finish([credentials.password]);
     }).on('error', onError);
 
     const connParams = {
       host: bastion.host,
       port: bastion.port || 22,
-      username: credentials.username
+      username: credentials.username,
+      tryKeyboard: true
     };
     if (credentials.password) connParams.password = credentials.password;
     if (credentials.privateKey) connParams.privateKey = credentials.privateKey;
@@ -93,12 +97,15 @@ function sftpWriteFileOnBastion(bastion, credentials, remotePath, content, mode 
 
         readStream.pipe(writeStream);
       });
+    }).on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
+      finish([credentials.password]);
     }).on('error', onError);
 
     const connParams = {
       host: bastion.host,
       port: bastion.port || 22,
-      username: credentials.username
+      username: credentials.username,
+      tryKeyboard: true
     };
     if (credentials.password) connParams.password = credentials.password;
     if (credentials.privateKey) connParams.privateKey = credentials.privateKey;
