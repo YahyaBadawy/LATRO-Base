@@ -72,11 +72,18 @@ export default function EdaTab() {
     try {
       const form = [['client_id', eda.clientId], ['client_secret', eda.clientSecret], ['grant_type', 'password'], ['username', eda.username], ['password', eda.password], ['scope', SCOPE]]
         .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&');
-      const tokenJson = parseJson(await remoteCurl(`curl -ksS --fail -X POST -H ${shellQuote('Content-Type: application/x-www-form-urlencoded')} --data ${shellQuote(form)} ${shellQuote('https://127.0.0.1:8383/oauth/v1/token')}`));
+
+      // Use the selected EDA host IP (not 127.0.0.1) when running curl from the bastion
+      const tokenUrl = `https://${host}:8383/oauth/v1/token`;
+      const tokenJson = parseJson(await remoteCurl(`curl -ksS --fail -X POST -H ${shellQuote('Content-Type: application/x-www-form-urlencoded')} --data ${shellQuote(form)} ${shellQuote(tokenUrl)}`));
+
       if (!tokenJson.access_token) throw new Error('Token response did not contain access_token');
       const nextToken = tokenJson.access_token;
-      const list = parseJson(await remoteCurl(`curl -ksS --fail -H ${shellQuote(`Authorization: Bearer ${nextToken}`)} ${shellQuote('https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/')}`));
+
+      const resourcesUrl = `https://${host}:8383/cm-rest/v1/activation-logic/resources/`;
+      const list = parseJson(await remoteCurl(`curl -ksS --fail -H ${shellQuote(`Authorization: Bearer ${nextToken}`)} ${shellQuote(resourcesUrl)}`));
       if (!Array.isArray(list)) throw new Error('Resource response was not a JSON array');
+
       setToken(nextToken); setResources(list); setSelectedResource(''); setPropertiesText('');
       setStatus({ kind: 'connected', text: 'Connected' }); setMessage(`Connected. Loaded ${list.length} resources.`);
       showToast('success', `Connected — loaded ${list.length} resources`);
@@ -91,7 +98,7 @@ export default function EdaTab() {
     if (!token || !selectedResource) return;
     setBusy(true); setEditable(false);
     try {
-      const url = `https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
+      const url = `https://${host}:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
       const data = parseJson(await remoteCurl(`curl -ksS --fail -H ${shellQuote(`Authorization: Bearer ${token}`)} ${shellQuote(url)}`));
       setPropertiesText(JSON.stringify(data, null, 2));
       setMessage('Properties loaded. Click Edit properties to modify the JSON.');
@@ -102,7 +109,7 @@ export default function EdaTab() {
 
   // Always fetch the current remote state and back it up immediately before PATCH.
   async function backupCurrentRemoteProperties() {
-    const url = `https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
+    const url = `https://${host}:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
     const current = parseJson(await remoteCurl(`curl -ksS --fail -H ${shellQuote(`Authorization: Bearer ${token}`)} ${shellQuote(url)}`));
     const stamp = new Date().toISOString().replace(/[:.]/g, '');
     const remotePath = `/tmp/latro_${site}_${safeName(selectedResource)}_${stamp}_before-patch.json`;
@@ -122,7 +129,7 @@ export default function EdaTab() {
       const parsed = JSON.parse(propertiesText);
       const backupPath = await backupCurrentRemoteProperties();
       const payload = btoa(unescape(encodeURIComponent(JSON.stringify(parsed))));
-      const url = `https://127.0.0.1:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
+      const url = `https://${host}:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
       const command = `printf %s ${shellQuote(payload)} | base64 -d | curl -ksS --fail -X PATCH ${shellQuote(url)} -H ${shellQuote(`Authorization: Bearer ${token}`)} -H ${shellQuote('Accept: application/json')} -H ${shellQuote('Content-Type: application/json')} --data-binary @-`;
       await remoteCurl(command);
       const successMessage = `Properties updated successfully. Pre-PATCH backup: ${backupPath}`;
