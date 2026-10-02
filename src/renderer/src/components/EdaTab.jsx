@@ -8,11 +8,19 @@ const SCOPE = 'scopes.ericsson.com/activation/activation_logic_properties.read s
 function shellQuote(value) { return `'${String(value ?? '').replace(/'/g, "'\\''")}'`; }
 function parseJson(stdout) { return JSON.parse(String(stdout || '').replace(/^\*.*$/gm, '').trim()); }
 function safeName(value) { return String(value).replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 120); }
+function redactSecrets(value) {
+  if (!value) return value;
+  return String(value)
+    .replace(/client_secret=([^&]+)/gi, 'client_secret=REDACTED')
+    .replace(/password=([^&]+)/gi, 'password=REDACTED')
+    .replace(/Authorization: Bearer [^\s]+/gi, 'Authorization: Bearer REDACTED')
+    .replace(/access_token":"[^"]+"/gi, 'access_token":"REDACTED"');
+}
 
 export default function EdaTab() {
   const [site, setSite] = useState('HO');
-  const [ssh, setSsh] = useState({ username: 'csptmuser', password: 'CU+w:s7Do45:.z' });
-  const [eda, setEda] = useState({ username: 'yahyab@latro-ms.com', password: 'f4h9LymkQWPewn_', clientId: CLIENT_ID, clientSecret: '7544c077-a088-416a-83a6-71e3d26082f8' });
+  const [ssh, setSsh] = useState({ username: '', password: '' });
+  const [eda, setEda] = useState({ username: '', password: '', clientId: CLIENT_ID, clientSecret: '' });
   const [remember, setRemember] = useState(false);
   const [token, setToken] = useState('');
   const [resources, setResources] = useState([]);
@@ -49,8 +57,16 @@ export default function EdaTab() {
 
   async function remoteCurl(command) {
     if (!window.latroApi?.execCurl) throw new Error('Electron bridge is unavailable.');
+    const redacted = redactSecrets(command);
+    // eslint-disable-next-line no-console
+    console.log('[LATRO] remoteCurl command:', redacted);
     const result = await window.latroApi.execCurl({ bastion, credentials, curlCommand: command });
-    if (!result.success) throw new Error(result.error || result.stderr || 'Remote command failed');
+    if (!result.success) {
+      const error = new Error(result.error || result.stderr || 'Remote command failed');
+      error.stderr = result.stderr || '';
+      error.stdout = result.stdout || '';
+      throw error;
+    }
     return result.stdout;
   }
 
@@ -60,6 +76,11 @@ export default function EdaTab() {
     setToast({ visible: true, type, text });
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast((t) => ({ ...t, visible: false })), timeout);
+  }
+
+  function setStatusMessage(kind, text) {
+    setStatus({ kind, text });
+    setMessage(text);
   }
 
   async function connect() {
@@ -73,15 +94,16 @@ export default function EdaTab() {
       const form = [['client_id', eda.clientId], ['client_secret', eda.clientSecret], ['grant_type', 'password'], ['username', eda.username], ['password', eda.password], ['scope', SCOPE]]
         .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&');
 
-      // Use the selected EDA host IP (not 127.0.0.1) when running curl from the bastion
       const tokenUrl = `https://${host}:8383/oauth/v1/token`;
-      const tokenJson = parseJson(await remoteCurl(`curl -ksS --fail -X POST -H ${shellQuote('Content-Type: application/x-www-form-urlencoded')} --data ${shellQuote(form)} ${shellQuote(tokenUrl)}`));
+      const tokenCommand = `curl -ksS --fail -X POST -H ${shellQuote('Content-Type: application/x-www-form-urlencoded')} --data ${shellQuote(form)} ${shellQuote(tokenUrl)}`;
+      const tokenJson = parseJson(await remoteCurl(tokenCommand));
 
       if (!tokenJson.access_token) throw new Error('Token response did not contain access_token');
       const nextToken = tokenJson.access_token;
 
       const resourcesUrl = `https://${host}:8383/cm-rest/v1/activation-logic/resources/`;
-      const list = parseJson(await remoteCurl(`curl -ksS --fail -H ${shellQuote(`Authorization: Bearer ${nextToken}`)} ${shellQuote(resourcesUrl)}`));
+      const resourcesCommand = `curl -ksS --fail -H ${shellQuote(`Authorization: Bearer ${nextToken}`)} ${shellQuote(resourcesUrl)}`;
+      const list = parseJson(await remoteCurl(resourcesCommand));
       if (!Array.isArray(list)) throw new Error('Resource response was not a JSON array');
 
       setToken(nextToken); setResources(list); setSelectedResource(''); setPropertiesText('');
@@ -89,8 +111,11 @@ export default function EdaTab() {
       showToast('success', `Connected — loaded ${list.length} resources`);
       if (remember && window.latroApi?.storeCredentials) await window.latroApi.storeCredentials({ service: 'latro-base', account: 'default', payload: { ssh, eda, site } });
     } catch (error) {
-      setToken(''); setResources([]); setStatus({ kind: 'error', text: 'Connection failed' }); setMessage(error.message);
-      showToast('error', `Connection failed: ${error.message}`);
+      const detail = error.stderr ? `${error.message}\n${error.stderr}` : error.message;
+      // eslint-disable-next-line no-console
+      console.error('[LATRO] remote command failed:', detail);
+      setToken(''); setResources([]); setStatus({ kind: 'error', text: 'Connection failed' }); setMessage(detail);
+      showToast('error', detail);
     } finally { setBusy(false); }
   }
 
@@ -99,18 +124,22 @@ export default function EdaTab() {
     setBusy(true); setEditable(false);
     try {
       const url = `https://${host}:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
-      const data = parseJson(await remoteCurl(`curl -ksS --fail -H ${shellQuote(`Authorization: Bearer ${token}`)} ${shellQuote(url)}`));
+      const command = `curl -ksS --fail -H ${shellQuote(`Authorization: Bearer ${token}`)} ${shellQuote(url)}`;
+      const data = parseJson(await remoteCurl(command));
       setPropertiesText(JSON.stringify(data, null, 2));
       setMessage('Properties loaded. Click Edit properties to modify the JSON.');
       showToast('info', `Loaded properties for ${selectedResource}`);
-    } catch (error) { setMessage(`Properties failed: ${error.message}`); showToast('error', `Properties failed: ${error.message}`); }
-    finally { setBusy(false); }
+    } catch (error) {
+      const detail = error.stderr ? `${error.message}\n${error.stderr}` : error.message;
+      setMessage(detail);
+      showToast('error', detail);
+    } finally { setBusy(false); }
   }
 
-  // Always fetch the current remote state and back it up immediately before PATCH.
   async function backupCurrentRemoteProperties() {
     const url = `https://${host}:8383/cm-rest/v1/activation-logic/resources/${encodeURIComponent(selectedResource)}/properties`;
-    const current = parseJson(await remoteCurl(`curl -ksS --fail -H ${shellQuote(`Authorization: Bearer ${token}`)} ${shellQuote(url)}`));
+    const command = `curl -ksS --fail -H ${shellQuote(`Authorization: Bearer ${token}`)} ${shellQuote(url)}`;
+    const current = parseJson(await remoteCurl(command));
     const stamp = new Date().toISOString().replace(/[:.]/g, '');
     const remotePath = `/tmp/latro_${site}_${safeName(selectedResource)}_${stamp}_before-patch.json`;
     const result = await window.latroApi.writeRemoteBackup({
@@ -136,15 +165,14 @@ export default function EdaTab() {
       setMessage(successMessage);
       showToast('success', successMessage);
     } catch (error) {
-      const err = `Update cancelled: ${error.message}`;
-      setMessage(err);
-      showToast('error', err);
+      const detail = error.stderr ? `${error.message}\n${error.stderr}` : error.message;
+      setMessage(detail);
+      showToast('error', detail);
     } finally { setBusy(false); }
   }
 
   return (
     <section className="eda-card">
-      {/* Toast */}
       {toast.visible && (
         <div className={`latro-toast ${toast.type}`} role="status" aria-live="polite">
           <div className="latro-toast-text">{toast.text}</div>
