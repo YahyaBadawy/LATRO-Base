@@ -16,7 +16,7 @@ ipcMain.handle('run-msisdn-investigator', async (_event, payload = {}) => {
     }
 
     const shellQuote = (value) => `'${String(value ?? '').replace(/'/g, "'\\''")}'`;
-    const remoteCmd = `python ${scriptPath} ${msisdn} ${hourArg} ${mode} --json --workers ${workers}`;
+    const remoteCmd = `/usr/bin/env python2 ${scriptPath} ${msisdn} ${hourArg} ${mode} --json --workers ${workers}`;
     const command = ['ssh', '-q', `${rhevmUser}@${rhevmHost}`, shellQuote(remoteCmd)].join(' ');
 
     const result = await sshExecOnBastion(bastion, credentials, command, timeoutMs);
