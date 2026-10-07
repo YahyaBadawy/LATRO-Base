@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('latroApi', {
   storeCredentials: (args) => ipcRenderer.invoke('eda:storeCredentials', args),
   getCredentials: (args) => ipcRenderer.invoke('eda:getCredentials', args),
   deleteCredentials: (args) => ipcRenderer.invoke('eda:deleteCredentials', args),
+  runMsisdnInvestigator: (payload) => ipcRenderer.invoke('run-msisdn-investigator', payload),
   windowControl: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),

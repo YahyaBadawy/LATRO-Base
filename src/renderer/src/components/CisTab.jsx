@@ -41,12 +41,19 @@ export default function CisTab() {
     setBusy(true);
     setError('');
     setResults(null);
-
     try {
+      // Try to get stored SSH credentials. If not available, fall back to the defaults you provided.
+      const creds = await window.latroApi.getCredentials({ service: 'latro-base', account: 'default' });
+      let credentials = { username: 'csptmuser', password: 'Latro@123!@MTNB' };
+      if (creds?.success && creds.payload?.ssh) {
+        credentials = creds.payload.ssh;
+      }
+
       const payload = {
         msisdn: msisdn.trim(),
         hourArg,
         mode,
+        credentials,
         workers: Number(workers) || 8,
         timeoutMs: 5 * 60 * 1000,
       };
@@ -54,7 +61,10 @@ export default function CisTab() {
       const res = await window.latroApi.runMsisdnInvestigator(payload);
 
       if (!res || !res.success) {
-        throw new Error(res?.error || 'Investigator failed');
+        let msg = res?.error || 'Investigator failed';
+        if (res?.stderr) msg += `\n\nSTDERR:\n${res.stderr}`;
+        if (res?.stdout) msg += `\n\nSTDOUT:\n${res.stdout}`;
+        throw new Error(msg);
       }
 
       setResults(res.payload);
