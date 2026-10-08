@@ -100,12 +100,10 @@ ipcMain.handle('window:close', async () => {
 
 ipcMain.handle('run-msisdn-investigator', async (_event, payload = {}) => {
   try {
-    // Resolve target RHEV host first (default to the known IP)
-    const rhevmHost = payload.rhevmHost || '10.10.46.143';
-    const rhevmUser = payload.rhevmUser || 'csptmuser';
-    // Use explicit bastion if supplied, otherwise connect directly to the RHEV host
-    const bastion = payload.bastion || { host: rhevmHost, port: 22 };
-    const credentials = payload.credentials || { username: '', password: '' };
+    const host = payload.host || payload.rhevmHost || '10.10.46.143';
+    const port = Number(payload.port || 22);
+    const rhevmUser = payload.credentials?.username || payload.rhevmUser || 'csptmuser';
+    const credentials = payload.credentials || { username: rhevmUser, password: '' };
     const scriptPath = payload.scriptPath || '/home/csptmuser/scripts/msisdn_investigator.py';
     const msisdn = payload.msisdn;
     const hourArg = payload.hourArg || 'allday';
@@ -117,11 +115,18 @@ ipcMain.handle('run-msisdn-investigator', async (_event, payload = {}) => {
       return { success: false, error: 'MSISDN is required' };
     }
 
-    const shellQuote = (value) => `'${String(value ?? '').replace(/'/g, "'\\''")}'`;
     const remoteCmd = `/usr/bin/env python2 ${scriptPath} ${msisdn} ${hourArg} ${mode} --json --workers ${workers}`;
-    const command = ['ssh', '-q', `${rhevmUser}@${rhevmHost}`, shellQuote(remoteCmd)].join(' ');
 
-    const result = await sshExecOnBastion(bastion, credentials, command, timeoutMs);
+    // Direct execution on target host unless an external bastion host is explicitly supplied
+    let command = remoteCmd;
+    let target = { host, port };
+    if (payload.bastion && payload.bastion.host && payload.bastion.host !== host) {
+      const shellQuote = (value) => `'${String(value ?? '').replace(/'/g, "'\\''")}'`;
+      command = ['ssh', '-q', `${rhevmUser}@${host}`, shellQuote(remoteCmd)].join(' ');
+      target = payload.bastion;
+    }
+
+    const result = await sshExecOnBastion(target, credentials, command, timeoutMs);
 
     if (!result || typeof result.stdout === 'undefined') {
       return {

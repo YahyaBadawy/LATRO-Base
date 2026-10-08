@@ -16,6 +16,14 @@ function HourSelector({ value, onChange }) {
 
 export default function CisTab() {
   const [panel, setPanel] = useState('investigator'); // 'investigator' or 'servers'
+  const [host, setHost] = useState('10.10.46.143');
+  const [port, setPort] = useState('22');
+  const [username, setUsername] = useState('csptmuser');
+  const [password, setPassword] = useState('Latro@123!@MTNB');
+  const [rememberCreds, setRememberCreds] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+
   const [msisdn, setMsisdn] = useState('');
   const [hourArg, setHourArg] = useState('allday');
   const [mode, setMode] = useState('USSD');
@@ -25,6 +33,22 @@ export default function CisTab() {
   const [error, setError] = useState('');
 
   const toastTimer = useRef(null);
+
+  // Load saved credentials specifically for CIS (isolated from EDA 'default' account)
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const creds = await window.latroApi?.getCredentials?.({ service: 'latro-base', account: 'cis' });
+        if (creds?.success && creds.payload) {
+          if (creds.payload.host) setHost(creds.payload.host);
+          if (creds.payload.port) setPort(creds.payload.port);
+          if (creds.payload.username) setUsername(creds.payload.username);
+          if (creds.payload.password) setPassword(creds.payload.password);
+          setRememberCreds(true);
+        }
+      } catch (_) {}
+    })();
+  }, []);
 
   function showToast(text, kind = 'error') {
     setError(kind === 'error' ? text : '');
@@ -43,18 +67,26 @@ export default function CisTab() {
     setError('');
     setResults(null);
     try {
-      // Try to get stored SSH credentials. If not available, fall back to the defaults you provided.
-      const creds = await window.latroApi.getCredentials?.({ service: 'latro-base', account: 'default' });
-      let credentials = { username: 'csptmuser', password: 'Latro@123!@MTNB' };
-      if (creds?.success && creds.payload?.ssh) {
-        credentials = creds.payload.ssh;
+      if (rememberCreds) {
+        try {
+          await window.latroApi?.storeCredentials?.({
+            service: 'latro-base',
+            account: 'cis',
+            payload: { host: host.trim(), port: port.trim(), username: username.trim(), password }
+          });
+        } catch (_) {}
       }
 
       const payload = {
+        host: host.trim() || '10.10.46.143',
+        port: Number(port) || 22,
+        credentials: {
+          username: username.trim() || 'csptmuser',
+          password
+        },
         msisdn: msisdn.trim(),
         hourArg,
         mode,
-        credentials,
         workers: Number(workers) || 8,
         timeoutMs: 5 * 60 * 1000,
       };
@@ -79,7 +111,78 @@ export default function CisTab() {
   function renderInvestigatorPanel() {
     return (
       <div className="cis-panel cis-panel-main">
-        <h3>MSISDN Investigator</h3>
+        <div className="panel-title-bar">
+          <h3>MSISDN Investigator</h3>
+          <button
+            type="button"
+            className="config-toggle-button"
+            onClick={() => setShowConfig(!showConfig)}
+          >
+            ⚙ SSH Settings ({username}@{host}:{port})
+          </button>
+        </div>
+
+        {showConfig && (
+          <div className="ssh-config-box">
+            <h4>SSH Connection Settings</h4>
+            <div className="config-grid">
+              <div className="field-group">
+                <label>Host IP</label>
+                <input
+                  type="text"
+                  value={host}
+                  onChange={(e) => setHost(e.target.value)}
+                  placeholder="10.10.46.143"
+                />
+              </div>
+              <div className="field-group">
+                <label>Port</label>
+                <input
+                  type="number"
+                  value={port}
+                  onChange={(e) => setPort(e.target.value)}
+                  placeholder="22"
+                  style={{ width: 80 }}
+                />
+              </div>
+              <div className="field-group">
+                <label>Username</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="csptmuser"
+                />
+              </div>
+              <div className="field-group">
+                <label>Password</label>
+                <div className="password-input-wrapper">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="SSH password"
+                  />
+                  <button
+                    type="button"
+                    className="pw-toggle-btn"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={rememberCreds}
+                onChange={(e) => setRememberCreds(e.target.checked)}
+              />
+              <span>Remember SSH credentials for CIS</span>
+            </label>
+          </div>
+        )}
 
         <div className="field-row">
           <label>MSISDN</label>

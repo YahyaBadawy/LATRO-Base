@@ -11,7 +11,7 @@ function sshExecOnBastion(bastion, credentials, command, timeoutMs = 30000) {
     const onError = (err) => {
       try { conn.end(); } catch (e) {}
       if (timedOut) return;
-      const error = new Error('SSH exec failed: ' + (err.message || err));
+      const error = new Error(`SSH connection to ${bastion.host}:${bastion.port || 22} (${credentials.username}) failed: ${err.message || err}`);
       error.stderr = stderr;
       reject(error);
     };
@@ -38,7 +38,11 @@ function sshExecOnBastion(bastion, credentials, command, timeoutMs = 30000) {
       });
     }).on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
       // Respond to keyboard-interactive prompts with the password
-      finish([credentials.password]);
+      if (Array.isArray(prompts) && prompts.length > 0) {
+        finish(prompts.map(() => credentials.password || ''));
+      } else {
+        finish([credentials.password || '']);
+      }
     }).on('error', onError);
 
     const connParams = {
@@ -55,7 +59,7 @@ function sshExecOnBastion(bastion, credentials, command, timeoutMs = 30000) {
     setTimeout(() => {
       timedOut = true;
       try { conn.end(); } catch (e) {}
-      const error = new Error('SSH exec timed out');
+      const error = new Error(`SSH exec on ${bastion.host}:${bastion.port || 22} timed out after ${timeoutMs / 1000}s`);
       error.stderr = stderr;
       reject(error);
     }, timeoutMs);
@@ -70,7 +74,7 @@ function sftpWriteFileOnBastion(bastion, credentials, remotePath, content, mode 
     const onError = (err) => {
       try { conn.end(); } catch (e) {}
       if (timedOut) return;
-      reject(new Error('SFTP failed: ' + (err.message || err)));
+      reject(new Error(`SFTP on ${bastion.host}:${bastion.port || 22} (${credentials.username}) failed: ${err.message || err}`));
     };
 
     conn.on('ready', () => {
@@ -98,7 +102,11 @@ function sftpWriteFileOnBastion(bastion, credentials, remotePath, content, mode 
         readStream.pipe(writeStream);
       });
     }).on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
-      finish([credentials.password]);
+      if (Array.isArray(prompts) && prompts.length > 0) {
+        finish(prompts.map(() => credentials.password || ''));
+      } else {
+        finish([credentials.password || '']);
+      }
     }).on('error', onError);
 
     const connParams = {
